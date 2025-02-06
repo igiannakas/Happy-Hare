@@ -4287,19 +4287,29 @@ class Mmu:
                         # Check and attempt correction if bowden_apply_correction is enabled
                         if self.bowden_apply_correction:
                             self.log_debug("Checking if correction move is needed on unload bowden")
-                            for i in range(2):
-                                if delta >= self.bowden_allowable_unload_delta:
-                                    msg = "Correction unload move #%d from bowden" % (i + 1)
-                                    # Move "backwards" by delta since we still haven't offloaded enough
-                                    _, _, _, delta = self.trace_filament_move(msg, -delta, track=True)
-                                    self.log_debug("Correction unload move was necessary, encoder now measures %.1fmm" % self.get_encoder_distance())
-                                else:
-                                    self.log_debug("Correction unload complete, delta %.1fmm is less than 'bowden_allowable_unload_delta' (%.1fmm)" % (delta, self.bowden_allowable_unload_delta))
-                                    break
+                            
+                            if delta >= self.bowden_allowable_unload_delta:
+                                msg = "Correction unload move from bowden"
+                                # Correct slipage by moving "backwards" by at most the gate unload buffer minus the gate parking distance, and one encoder move step size.
+                                # This is to avoid pushing the filament outside the encoder and the parking location if the encoder is misreading.
+                                # If the encoder is missreading, this single move will bring the filament ahead of the encoder by one encoder step size,
+                                # ensuring the unload gate command sees some encoder movement. At most we will issue a single correction command to prevent filament
+                                # walking past the gate if the encoder is misbehaving or the user calibration is not accurate.
+                                correction_move_distance = min(delta, (self.gate_unload_buffer - self.gate_parking_distance - self.encoder_move_step_size))
+                                self.log_info("Slippage %.1fmm" % delta)
+                                self.log_info("Correction move %.1fmm" % correction_move_distance)
+                                _, _, _, d = self.trace_filament_move(msg, -correction_move_distance, track=True)
+                                self.log_info("Corrected by %.1fmm" % d)
+                                # This is any residual delta that we could not correct either through the minimum safe distance above or by any further slippage from the
+                                # trace filament move. Used to raise warning if deviation is still present.
+                                delta -= (correction_move_distance - d)
+                                self.log_info("Left uncorrected by %.1fmm" % delta)
+                                self.log_debug("Correction unload move was necessary, encoder now measures %.1fmm" % self.get_encoder_distance())
+                                
                             if delta >= self.bowden_allowable_unload_delta:
                                 self.log_info("Warning: Excess slippage was detected in bowden tube unload after correction moves.Gear moved %.1fmm, Encoder measured %.1fmm. See mmu.log for more details" % (length, length - delta))
                         else:
-                            self.log_info("Warning: Excess slippage was detected in bowden tube unload but 'bowden_apply_correction' is disabled. Gear moved %.1fmm, Encoder measured %.1fmm. See mmu.log for more details" % (length, length - delta))
+                            self.log_info("Warning: Excess slippage was detected in bowden tube unload. Gear moved %.1fmm, Encoder measured %.1fmm. See mmu.log for more details" % (length, length - delta))
 
                 self._random_failure() # Testing
                 self.movequeues_wait()
