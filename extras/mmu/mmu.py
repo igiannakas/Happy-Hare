@@ -112,6 +112,7 @@ class Mmu:
     SENSOR_EXTRUDER_NONE       = "none"           # Fake Extruder endstop aka don't attempt home
     SENSOR_EXTRUDER_COLLISION  = "collision"      # Fake Extruder endstop
     SENSOR_EXTRUDER_ENTRY      = "extruder"       # Extruder entry sensor
+    SENSOR_EXTRUDER_ENTRY_PROP = "proportional"   # Proportional sensor used to detect extruder entry
     SENSOR_GEAR_TOUCH          = "mmu_gear_touch" # Stallguard based detection
 
     SENSOR_COMPRESSION         = "filament_compression"  # Filament sync-feedback compression detection
@@ -125,7 +126,7 @@ class Mmu:
     SENSOR_SELECTOR_HOME       = "mmu_sel_home"   # For LinearSelector and LinearServoSelector
     SENSOR_PRE_GATE_PREFIX     = "mmu_pre_gate"
 
-    EXTRUDER_ENDSTOPS = [SENSOR_EXTRUDER_COLLISION, SENSOR_GEAR_TOUCH, SENSOR_EXTRUDER_ENTRY, SENSOR_EXTRUDER_NONE, SENSOR_COMPRESSION]
+    EXTRUDER_ENDSTOPS = [SENSOR_EXTRUDER_COLLISION, SENSOR_GEAR_TOUCH, SENSOR_EXTRUDER_ENTRY, SENSOR_EXTRUDER_ENTRY_PROP, SENSOR_EXTRUDER_NONE, SENSOR_COMPRESSION]
     GATE_ENDSTOPS     = [SENSOR_GATE, SENSOR_ENCODER, SENSOR_GEAR_PREFIX, SENSOR_EXTRUDER_ENTRY]
 
     # Statistics output types
@@ -4759,6 +4760,55 @@ class Mmu:
                 homing_movement = actual
             else:
                 raise MmuError("Cannot home to extruder using 'collision' method because encoder is not configured or disabled!")
+
+        elif self.extruder_homing_endstop == self.SENSOR_EXTRUDER_ENTRY_PROP:
+            has_proportional = self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL)
+            if not has_proportional:
+                raise MmuError("Cannot home to extruder using 'proportional' method because proportional sync feedback sensor is not configured!")
+
+            actual = 0.
+            homed = False
+            per_side_range = float(self.sync_feedback_manager.sync_feedback_buffer_range) / 2.0
+
+            self.log_debug("Proportional sensor extruder homing: Pausing for 2 seconds to allow bowden to settle")
+            try:
+                self.reactor.pause(self.reactor.monotonic() + 2.0)
+            except Exception:
+                time.sleep(2.0)
+
+            self.log_debug("Homing to extruder '%s' endstop, up to %.1fmm with proportional steps" % (
+                self.extruder_homing_endstop, max_length))
+
+            while actual < max_length:
+                prop_state = float(self.sync_feedback_manager._get_sensor_state())
+                if prop_state >= 0.9:
+                    homed = True
+                    break
+
+                remaining_ratio = (0.9 - prop_state) / 0.9
+                move = per_side_range * remaining_ratio
+
+                if move < 1.0:
+                    move = 1.0
+
+                move = min(move, max_length - actual)
+
+                self.log_debug("Proportional homing: sensor=%.3f, move=%.2fmm" % (prop_state, move))
+
+                _, _, measured, _ = self.trace_filament_move(
+                    "Homing filament to extruder proportional threshold",
+                    move,
+                    motor="gear",
+                    wait=True
+                )
+                actual += move
+
+            if homed:
+                self.log_debug("Extruder proportional threshold reached after %.1fmm (sensor %.3f)" % (
+                    actual, float(self.sync_feedback_manager._get_sensor_state())))
+                self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY)
+
+            homing_movement = actual
 
         else:
             self.log_debug("Homing to extruder '%s' endstop, up to %.1fmm" % (self.extruder_homing_endstop, max_length))
