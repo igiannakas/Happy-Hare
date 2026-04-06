@@ -429,6 +429,7 @@ class Mmu:
         self.gear_short_move_accel = config.getfloat('gear_short_move_accel', 400, minval=10.)
         self.gear_short_move_threshold = config.getfloat('gear_short_move_threshold', self.gate_homing_max, minval=1.)
         self.gear_homing_speed = config.getfloat('gear_homing_speed', 150, minval=1.)
+        self.proportional_homing_speed = config.getfloat('proportional_homing_speed', 10, minval=1.) # Dedicated speed for proportional sensor extruder homing
 
         self.extruder_load_speed = config.getfloat('extruder_load_speed', 15, minval=1.)
         self.extruder_unload_speed = config.getfloat('extruder_unload_speed', 15, minval=1.)
@@ -2608,6 +2609,7 @@ class Mmu:
         can_use_sensor = (
             self.extruder_homing_endstop in [
                 self.SENSOR_EXTRUDER_ENTRY,
+                self.SENSOR_EXTRUDER_ENTRY_PROP,
                 self.SENSOR_COMPRESSION,
                 self.SENSOR_GEAR_TOUCH
             ] and (
@@ -4772,11 +4774,14 @@ class Mmu:
             except Exception:
                 time.sleep(2.0)
 
-            self.log_debug("Homing to extruder '%s' virtual endstop, up to %.1fmm" % (self.extruder_homing_endstop, max_length))
-            actual,homed,measured,_ = self.trace_filament_move("Homing filament to extruder via proportional sensor", max_length, motor="gear", homing_move=1, endstop_name=self.SENSOR_EXTRUDER_ENTRY_PROP)
+            self.log_debug("Homing to extruder '%s' virtual endstop, up to %.1fmm at %.1fmm/s" % (self.extruder_homing_endstop, max_length, self.proportional_homing_speed))
+            actual,homed,measured,_ = self.trace_filament_move("Homing filament to extruder via proportional sensor", max_length, speed=self.proportional_homing_speed, motor="gear", homing_move=1, endstop_name=self.SENSOR_EXTRUDER_ENTRY_PROP)
             if homed:
                 self.log_debug("Extruder proportional endstop reached after %.1fmm (measured %.1fmm, sensor %.3f)" % (actual, measured, float(self.sync_feedback_manager._get_sensor_state())))
                 self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY)
+
+                # Reduce calibrated length by buffer range to prevent overshooting into the buffer on subsequent loads
+                extra = -self.sync_feedback_manager.sync_feedback_buffer_range
 
             homing_movement = actual
 
@@ -7463,6 +7468,7 @@ class Mmu:
         self.gear_short_move_accel = gcmd.get_float('GEAR_SHORT_MOVE_ACCEL', self.gear_short_move_accel, minval=10.)
         self.gear_short_move_threshold = gcmd.get_float('GEAR_SHORT_MOVE_THRESHOLD', self.gear_short_move_threshold, minval=0.)
         self.gear_homing_speed = gcmd.get_float('GEAR_HOMING_SPEED', self.gear_homing_speed, above=1.)
+        self.proportional_homing_speed = gcmd.get_float('PROPORTIONAL_HOMING_SPEED', self.proportional_homing_speed, above=1.)
         self.extruder_homing_speed = gcmd.get_float('EXTRUDER_HOMING_SPEED', self.extruder_homing_speed, above=1.)
         self.extruder_load_speed = gcmd.get_float('EXTRUDER_LOAD_SPEED', self.extruder_load_speed, above=1.)
         self.extruder_unload_speed = gcmd.get_float('EXTRUDER_UNLOAD_SPEED', self.extruder_unload_speed, above=1.)
@@ -7635,6 +7641,7 @@ class Mmu:
             msg += "\ngear_short_move_accel = %.1f" % self.gear_short_move_accel
             msg += "\ngear_short_move_threshold = %.1f" % self.gear_short_move_threshold
             msg += "\ngear_homing_speed = %.1f" % self.gear_homing_speed
+            msg += "\nproportional_homing_speed = %.1f" % self.proportional_homing_speed
             msg += "\nextruder_homing_speed = %.1f" % self.extruder_homing_speed
             msg += "\nextruder_load_speed = %.1f" % self.extruder_load_speed
             msg += "\nextruder_unload_speed = %.1f" % self.extruder_unload_speed

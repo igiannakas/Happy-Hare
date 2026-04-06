@@ -365,12 +365,9 @@ class MmuProportionalSensor:
 # Virtual endstop derived from the proportional sync-feedback sensor.
 # When the mapped sensor value crosses a configurable threshold (default 0.9 = heavy compression),
 # the endstop triggers, indicating that filament has reached the extruder entry. This allows
-# Klipper's native homing infrastructure (via gear_rail.add_extra_endstop) to be used for
-# filament homing at the extruder rather than a software polling loop.
+# Klipper's native homing (via gear_rail.add_extra_endstop) to be used for
+# filament homing at the extruder.
 #
-# Implements the Klipper endstop interface: query_endstop, add_stepper, get_steppers,
-# home_start, home_wait, setup_pin. Follows the same pattern as MmuAdcSwitchSensor and
-# MmuHallEndstop.
 class MmuProportionalExtruderEndstop:
 
     def __init__(self, config, proportional_sensor, name, threshold=0.9):
