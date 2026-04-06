@@ -4766,46 +4766,16 @@ class Mmu:
             if not has_proportional:
                 raise MmuError("Cannot home to extruder using 'proportional' method because proportional sync feedback sensor is not configured!")
 
-            actual = 0.
-            homed = False
-            per_side_range = float(self.sync_feedback_manager.sync_feedback_buffer_range) / 2.0
-
             self.log_debug("Proportional sensor extruder homing: Pausing for 2 seconds to allow bowden to settle")
             try:
                 self.reactor.pause(self.reactor.monotonic() + 2.0)
             except Exception:
                 time.sleep(2.0)
 
-            self.log_debug("Homing to extruder '%s' endstop, up to %.1fmm with proportional steps" % (
-                self.extruder_homing_endstop, max_length))
-
-            while actual < max_length:
-                prop_state = float(self.sync_feedback_manager._get_sensor_state())
-                if prop_state >= 0.9:
-                    homed = True
-                    break
-
-                remaining_ratio = (0.9 - prop_state) / 0.9
-                move = per_side_range * remaining_ratio
-
-                if move < 1.0:
-                    move = 1.0
-
-                move = min(move, max_length - actual)
-
-                self.log_debug("Proportional homing: sensor=%.3f, move=%.2fmm" % (prop_state, move))
-
-                _, _, measured, _ = self.trace_filament_move(
-                    "Homing filament to extruder proportional threshold",
-                    move,
-                    motor="gear",
-                    wait=True
-                )
-                actual += move
-
+            self.log_debug("Homing to extruder '%s' virtual endstop, up to %.1fmm" % (self.extruder_homing_endstop, max_length))
+            actual,homed,measured,_ = self.trace_filament_move("Homing filament to extruder via proportional sensor", max_length, motor="gear", homing_move=1, endstop_name=self.SENSOR_EXTRUDER_ENTRY_PROP)
             if homed:
-                self.log_debug("Extruder proportional threshold reached after %.1fmm (sensor %.3f)" % (
-                    actual, float(self.sync_feedback_manager._get_sensor_state())))
+                self.log_debug("Extruder proportional endstop reached after %.1fmm (measured %.1fmm, sensor %.3f)" % (actual, measured, float(self.sync_feedback_manager._get_sensor_state())))
                 self._set_filament_pos_state(self.FILAMENT_POS_HOMED_ENTRY)
 
             homing_movement = actual
