@@ -826,7 +826,7 @@ class MmuSensors:
             self.sensors[Mmu.SENSOR_PROPORTIONAL] = prop_sensor
 
             # Create virtual endstop for extruder entry detection from proportional sensor
-            threshold = config.getfloat('sync_feedback_analog_extruder_threshold', 0.9, minval=0.1, maxval=1.0)
+            threshold = config.getfloat('proportional_extruder_threshold', 0.9, minval=0.1, maxval=1.0)
             self.sensors[Mmu.SENSOR_EXTRUDER_ENTRY_PROP] = MmuProportionalExtruderEndstop(
                 config, prop_sensor, Mmu.SENSOR_EXTRUDER_ENTRY_PROP, threshold=threshold
             )

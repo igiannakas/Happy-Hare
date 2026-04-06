@@ -430,6 +430,7 @@ class Mmu:
         self.gear_short_move_threshold = config.getfloat('gear_short_move_threshold', self.gate_homing_max, minval=1.)
         self.gear_homing_speed = config.getfloat('gear_homing_speed', 150, minval=1.)
         self.proportional_homing_speed = config.getfloat('proportional_homing_speed', 10, minval=1.) # Dedicated speed for proportional sensor extruder homing
+        self.proportional_extruder_threshold = config.getfloat('proportional_extruder_threshold', 0.9, minval=0.1, maxval=1.0) # Threshold for proportional sensor extruder entry detection
 
         self.extruder_load_speed = config.getfloat('extruder_load_speed', 15, minval=1.)
         self.extruder_unload_speed = config.getfloat('extruder_unload_speed', 15, minval=1.)
@@ -4844,6 +4845,33 @@ class Mmu:
         self._set_filament_position(self._get_filament_position() - step) # Ignore last step movement
         return step*i, homed, measured, delta
 
+    # Validate that the extruder has gripped the filament after homing using the proportional sensor.
+    # Drives extruder motor only in incremental steps and checks the sensor drops below the trigger threshold,
+    # confirming the extruder is actively pulling filament through.
+    # Returns: distance moved (mm) on success
+    # Raises: MmuError if the sensor never drops below threshold
+    def _validate_extruder_entry_proportional(self):
+        prop_sensor = self.sensor_manager.sensors.get(self.SENSOR_PROPORTIONAL)
+        prop_threshold = self.proportional_extruder_threshold
+
+        step_size = self.sync_feedback_manager.sync_feedback_buffer_maxrange / 2.
+        max_steps = 4
+        initial_state = prop_sensor.get_status(0).get('value', 0.)
+        self.log_debug("Proportional post-load validation: sensor=%.3f, driving extruder in %.1fmm steps (up to %d) to confirm entry..." % (initial_state, step_size, max_steps))
+
+        moved = 0.
+        for i in range(max_steps):
+            self.trace_filament_move("Proportional extruder entry validation step %d" % (i + 1), step_size, speed=self.extruder_load_speed, motor="extruder", wait=True)
+            moved += step_size
+            prop_state = prop_sensor.get_status(0).get('value', 0.)
+            if prop_state < prop_threshold:
+                self.log_debug("Proportional post-load validation: sensor dropped to %.3f after %.1fmm (step %d) - extruder entry confirmed" % (prop_state, moved, i + 1))
+                return moved
+        else:
+            prop_state = prop_sensor.get_status(0).get('value', 0.)
+            self._set_filament_pos_state(self.FILAMENT_POS_EXTRUDER_ENTRY)
+            raise MmuError("Failed to load filament past the extruder entrance (proportional sensor reads %.3f after %.1fmm, expected below %.2f)" % (prop_state, moved, prop_threshold))
+
     # Move filament from the extruder gears (entrance) to the nozzle
     # Returns any homing distance for automatic calibration logic
     def _load_extruder(self, extruder_only=False):
@@ -4912,6 +4940,23 @@ class Mmu:
                     else:
                         self._set_filament_pos_state(self.FILAMENT_POS_EXTRUDER_ENTRY) # But could also still be POS_IN_BOWDEN!
                         raise MmuError("Failed to load filament passed the extruder entrance (sync-feedback buffer didn't detect neutral tension)")
+
+            # Proportional sensor post-load validation: drive the extruder motor only to pull filament through then
+            # check the proportional sensor has dropped below the threshold, confirming extruder grip
+            elif (
+                self.gate_selected != self.TOOL_GATE_BYPASS
+                and self.toolhead_entry_tension_test
+                and synced
+                and not has_toolhead
+                and has_proportional
+                and self.extruder_homing_endstop == self.SENSOR_EXTRUDER_ENTRY_PROP
+            ):
+                max_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange * 2
+                if length > max_range:
+                    moved = self._validate_extruder_entry_proportional()
+                    length -= moved
+                else:
+                    self.log_info("Proportional post-load validation: skipped - remaining load distance (%.1fmm) is less than required validation move (%.1fmm)" % (length, max_range))
 
             self.log_debug("Loading last %.1fmm to the nozzle..." % length)
             _,_,measured,delta = self.trace_filament_move("Loading filament to nozzle", length, speed=speed, motor=motor, wait=True)
@@ -7469,6 +7514,12 @@ class Mmu:
         self.gear_short_move_threshold = gcmd.get_float('GEAR_SHORT_MOVE_THRESHOLD', self.gear_short_move_threshold, minval=0.)
         self.gear_homing_speed = gcmd.get_float('GEAR_HOMING_SPEED', self.gear_homing_speed, above=1.)
         self.proportional_homing_speed = gcmd.get_float('PROPORTIONAL_HOMING_SPEED', self.proportional_homing_speed, above=1.)
+        prev_threshold = self.proportional_extruder_threshold
+        self.proportional_extruder_threshold = gcmd.get_float('PROPORTIONAL_EXTRUDER_THRESHOLD', self.proportional_extruder_threshold, minval=0.1, maxval=1.0)
+        if self.proportional_extruder_threshold != prev_threshold:
+            prop_endstop = self.sensor_manager.sensors.get(self.SENSOR_EXTRUDER_ENTRY_PROP, None)
+            if prop_endstop is not None:
+                prop_endstop._threshold = self.proportional_extruder_threshold
         self.extruder_homing_speed = gcmd.get_float('EXTRUDER_HOMING_SPEED', self.extruder_homing_speed, above=1.)
         self.extruder_load_speed = gcmd.get_float('EXTRUDER_LOAD_SPEED', self.extruder_load_speed, above=1.)
         self.extruder_unload_speed = gcmd.get_float('EXTRUDER_UNLOAD_SPEED', self.extruder_unload_speed, above=1.)
@@ -7642,6 +7693,7 @@ class Mmu:
             msg += "\ngear_short_move_threshold = %.1f" % self.gear_short_move_threshold
             msg += "\ngear_homing_speed = %.1f" % self.gear_homing_speed
             msg += "\nproportional_homing_speed = %.1f" % self.proportional_homing_speed
+            msg += "\nproportional_extruder_threshold = %.2f" % self.proportional_extruder_threshold
             msg += "\nextruder_homing_speed = %.1f" % self.extruder_homing_speed
             msg += "\nextruder_load_speed = %.1f" % self.extruder_load_speed
             msg += "\nextruder_unload_speed = %.1f" % self.extruder_unload_speed
