@@ -6743,6 +6743,9 @@ class Mmu:
                 msg = self._mmu_visual_to_string()
                 msg += "\n%s" % self._state_to_string()
                 self.log_info(msg, color=True)
+                # Disable type-B lane stepper after select (re-enabled on next move)
+                if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                    self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
 
