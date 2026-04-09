@@ -5377,6 +5377,10 @@ class Mmu:
                     else:
                         self.wrap_gcode_command(self.post_unload_macro, exception=True, wait=True)
 
+            # Disable type-B lane stepper after unload (re-enabled on next select_gear_stepper)
+            if not extruder_only and self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
+
         except MmuError as ee:
             self._track_gate_statistics('unload_failures', self.gate_selected)
             raise MmuError("Unload sequence failed because:\n%s" % (str(ee)))
