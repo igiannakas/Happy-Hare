@@ -603,36 +603,40 @@ class MmuToolHead(toolhead.ToolHead, object):
         if not self.mmu_machine.multigear: return
         with self._resync_lock:
             if gate == 0:
-                self._enable_lane_stepper_for_gate(gate)
+                if self.mmu_machine.filament_always_gripped:
+                    self._enable_lane_stepper(gate)
                 self._reconfigure_rail_no_lock([GEAR_STEPPER_CONFIG])
             elif gate > 0:
-                self._enable_lane_stepper_for_gate(gate)
+                if self.mmu_machine.filament_always_gripped:
+                    self._enable_lane_stepper(gate)
                 self._reconfigure_rail_no_lock(["%s_%d" % (GEAR_STEPPER_CONFIG, gate)])
             else:
                 self._reconfigure_rail_no_lock(None)
 
+    # Electrically disable/enable individual or all gear stepper drivers on type-B
+    # MMUs. Callers are responsible for guarding with multigear + filament_always_gripped.
+    # all_gear_rail_steppers only contains MMU gear rail steppers (rails[1]), never
+    # printer axis or extruder steppers.
 
-    # Disable the gear stepper driver for the specified gate.
-    # Called on type-B MMUs (multigear + filament_always_gripped) after a successful
-    # unload to de-energize the lane stepper driver while transitioning to the next gate.
     def disable_lane_stepper(self, gate):
-        if not self.mmu_machine.multigear or not self.mmu_machine.filament_always_gripped or gate < 0:
-            return
         stepper_name = GEAR_STEPPER_CONFIG if gate == 0 else "%s_%d" % (GEAR_STEPPER_CONFIG, gate)
         se = self.printer.lookup_object('stepper_enable').lookup_enable(stepper_name)
         se.motor_disable(self.get_last_move_time())
-        self.mmu.log_trace("Type-B lane stepper '%s' disabled after unload" % stepper_name)
+        self.mmu.log_trace("Type-B lane stepper '%s' disabled" % stepper_name)
 
-	# Re-enable the gear stepper driver for the specified gate before activation.
-    # Called on type-B MMUs (multigear + filament_always_gripped) prior to selecting
-    # a new lane, ensuring the stepper is energized before the load sequence begins.
-    def _enable_lane_stepper_for_gate(self, gate):
-        if not self.mmu_machine.filament_always_gripped or gate < 0:
-            return  # multigear is already confirmed by the caller (select_gear_stepper)
+    def disable_all_lane_steppers(self):
+        stepper_enable = self.printer.lookup_object('stepper_enable')
+        last_move_time = self.get_last_move_time()
+        for s in self.all_gear_rail_steppers:
+            se = stepper_enable.lookup_enable(s.get_name())
+            se.motor_disable(last_move_time)
+        self.mmu.log_trace("All type-B lane steppers disabled")
+
+    def _enable_lane_stepper(self, gate):
         stepper_name = GEAR_STEPPER_CONFIG if gate == 0 else "%s_%d" % (GEAR_STEPPER_CONFIG, gate)
         se = self.printer.lookup_object('stepper_enable').lookup_enable(stepper_name)
         se.motor_enable(self.get_last_move_time())
-        self.mmu.log_trace("Type-B lane stepper '%s' enabled before lane activation" % stepper_name)
+        self.mmu.log_trace("Type-B lane stepper '%s' enabled" % stepper_name)
 
     def _reconfigure_rail_no_lock(self, selected):
         m_th = self.mmu_toolhead
