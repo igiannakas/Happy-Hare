@@ -1342,6 +1342,10 @@ class Mmu:
             self.reset_sync_gear_to_extruder(False) # Intention is not to sync unless we have to
             self.mmu_toolhead.quiesce()
 
+            # Disable all type-B lane steppers at startup (re-enabled on next select_gear_stepper)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_all_lane_steppers()
+
             # Sync with spoolman. Delay as long as possible to maximize the chance it is contactable after startup/reboot
             self._spoolman_sync()
 
@@ -9033,6 +9037,10 @@ class Mmu:
 
                             if not quiet:
                                 self.log_info(self._mmu_visual_to_string())
+
+                            # Disable type-B lane stepper after check (re-enabled on next select_gear_stepper)
+                            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped and self.filament_pos == self.FILAMENT_POS_UNLOADED:
+                                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
