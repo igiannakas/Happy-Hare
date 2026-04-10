@@ -2403,6 +2403,10 @@ class Mmu:
             elif not self.selector.buzz_motor(motor):
                 raise gcmd.error("Motor '%s' not known" % motor)
 
+            # Disable type-B lane stepper after buzz test (re-enabled on next move)
+            if motor in ("gear", "gears") and self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
+
     cmd_MMU_SYNC_GEAR_MOTOR_help = "Sync the MMU gear motor to the extruder stepper"
     cmd_MMU_SYNC_GEAR_MOTOR_param_help = (
         "MMU_SYNC_GEAR_MOTOR: %s\n" % cmd_MMU_SYNC_GEAR_MOTOR_help
@@ -2578,6 +2582,9 @@ class Mmu:
                     self._unload_tool()
                     self.calibration_manager.calibrate_encoder(length, repeats, speed, min_speed, max_speed, accel, save)
                     _,_,_,_ = self.trace_filament_move("Parking filament", -advance)
+                    # Disable type-B lane stepper after calibration (re-enabled on next move)
+                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
         finally:
@@ -2926,6 +2933,10 @@ class Mmu:
                     msg = "Backing off tension limit"
                     self.log_always(msg)
                     _ = self.trace_filament_move(msg, (steps * STEP_SIZE / 2.0), motor="gear", speed=MOVE_SPEED, wait=True)
+
+                    # Disable type-B lane stepper after calibration (re-enabled on next move)
+                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
             if (found_c_limit and found_t_limit):
                 msg =  "Calibration Results:\n"
@@ -4382,6 +4393,9 @@ class Mmu:
                         self.trace_filament_move("Final parking", -self.gate_preload_parking_distance)
                         self._set_gate_status(self.gate_selected, self.GATE_AVAILABLE)
                         self._check_pending_spool_id(self.gate_selected) # Have spool_id ready?
+                        # Disable type-B lane stepper after preload (re-enabled on next move)
+                        if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                            self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
                         self.log_always("Filament detected and loaded in gate %d" % self.gate_selected)
                         return
         else:
@@ -4401,6 +4415,9 @@ class Mmu:
 
         if self.sensor_manager.check_gate_sensor(self.SENSOR_PRE_GATE_PREFIX, self.gate_selected):
             self._set_gate_status(self.gate_selected, self.GATE_UNKNOWN)
+            # Disable type-B lane stepper after failed preload (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
             self.log_warning("Filament detected by pre-gate %d sensor but did not complete preload" % self.gate_selected)
         else:
             self._set_gate_status(self.gate_selected, self.GATE_EMPTY)
@@ -4435,6 +4452,9 @@ class Mmu:
 
         self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED, silent=True) # Should already be in this position
         self._set_gate_status(gate, self.GATE_EMPTY)
+        # Disable type-B lane stepper after eject (re-enabled on next move)
+        if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+            self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
         self.log_always("The filament in gate %d can be removed" % gate)
 
     # Load filament into gate. This is considered the starting position for the rest of the filament loading
@@ -4527,6 +4547,9 @@ class Mmu:
                     self._set_filament_pos_state(self.FILAMENT_POS_HOMED_GATE)
                     self.trace_filament_move("Final parking", -self.gate_parking_distance)
                     self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED)
+                    # Disable type-B lane stepper after unload (re-enabled on next move)
+                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
                     return actual, self.gate_unload_buffer
 
         if self.gate_homing_endstop == self.SENSOR_ENCODER:
@@ -4543,6 +4566,9 @@ class Mmu:
                     if measured > self.encoder_min: # We expect 0, but relax the test a little (allow one pulse)
                         self.log_warning("Warning: Possible encoder malfunction (free-spinning) during final filament parking")
                     self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED)
+                    # Disable type-B lane stepper after unload (re-enabled on next move)
+                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
                     return actual, self.gate_unload_buffer
                 msg = "did not clear the encoder after moving %.1fmm" % homing_max
 
@@ -4553,6 +4579,9 @@ class Mmu:
                 self._set_filament_pos_state(self.FILAMENT_POS_HOMED_GATE)
                 self.trace_filament_move("Final parking", -self.gate_parking_distance)
                 self._set_filament_pos_state(self.FILAMENT_POS_UNLOADED)
+                # Disable type-B lane stepper after unload (re-enabled on next move)
+                if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                    self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
                 return actual, self.gate_unload_buffer
             msg = "did not home to sensor '%s' after moving %1.fmm" % (self.gate_homing_endstop, homing_max)
 
@@ -5450,10 +5479,6 @@ class Mmu:
                             self.wrap_gcode_command(self.post_unload_macro, exception=True, wait=True)
                     else:
                         self.wrap_gcode_command(self.post_unload_macro, exception=True, wait=True)
-
-            # Disable type-B lane stepper after unload (re-enabled on next select_gear_stepper)
-            if not extruder_only and self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
-                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
         except MmuError as ee:
             self._track_gate_statistics('unload_failures', self.gate_selected)
@@ -7131,6 +7156,10 @@ class Mmu:
                                 # Lazy movement means we have side effect of changed tool/gate
                                 self._ensure_ttg_match()
                                 self._initialize_encoder() # Encoder 0000
+
+                    # Disable type-B lane stepper after eject command (re-enabled on next move)
+                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
                     self._persist_swap_statistics()
 
