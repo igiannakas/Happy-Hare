@@ -5191,9 +5191,9 @@ class Mmu:
 
                     if self.has_blobifier: # Legacy blobifer integration. purge_macro now preferred
                         with self.wrap_action(self.ACTION_PURGING):
-                            self.wrap_gcode_command(self.post_load_macro, exception=True, wait=True)
+                            self.wrap_gcode_command(self.post_load_macro, exception=True)
                     else:
-                        self.wrap_gcode_command(self.post_load_macro, exception=True, wait=True)
+                        self.wrap_gcode_command(self.post_load_macro, exception=True)
 
         except MmuError as ee:
             self._track_gate_statistics('load_failures', self.gate_selected)
@@ -5521,7 +5521,7 @@ class Mmu:
                     msg += "- filament_remaining (previous cut fragment): %.1fmm\n" % self.filament_remaining
                     msg += "- slicer purge volume for toolchange %s > %s" % (self.selected_tool_string(self._last_tool), self.selected_tool_string(self._next_tool))
                     self.log_debug(msg)
-                    self.wrap_gcode_command(self.purge_macro, exception=True, wait=True)
+                    self.wrap_gcode_command(self.purge_macro, exception=True)
             else:
                 self.log_warning("Purge macro %s not found" % self.purge_macro)
 
