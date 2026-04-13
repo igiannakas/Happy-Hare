@@ -2582,12 +2582,12 @@ class Mmu:
                     self._unload_tool()
                     self.calibration_manager.calibrate_encoder(length, repeats, speed, min_speed, max_speed, accel, save)
                     _,_,_,_ = self.trace_filament_move("Parking filament", -advance)
-                    # Disable type-B lane stepper after calibration (re-enabled on next move)
-                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
-                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
         finally:
+            # Disable type-B lane stepper after calibration (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
             self.calibrating = False
 
     # Calibrated bowden length is always from chosen gate homing point to the entruder gears
@@ -2934,10 +2934,6 @@ class Mmu:
                     self.log_always(msg)
                     _ = self.trace_filament_move(msg, (steps * STEP_SIZE / 2.0), motor="gear", speed=MOVE_SPEED, wait=True)
 
-                    # Disable type-B lane stepper after calibration (re-enabled on next move)
-                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
-                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
-
             if (found_c_limit and found_t_limit):
                 msg =  "Calibration Results:\n"
                 msg += "As wired, recommended settings (in mmu_hardware.cfg) are:\n"
@@ -2957,6 +2953,9 @@ class Mmu:
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
         finally:
+            # Disable type-B lane stepper after calibration (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
             self.calibrating = False
 
 
@@ -4421,6 +4420,9 @@ class Mmu:
             self.log_warning("Filament detected by pre-gate %d sensor but did not complete preload" % self.gate_selected)
         else:
             self._set_gate_status(self.gate_selected, self.GATE_EMPTY)
+            # Disable type-B lane stepper before raising (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
             raise MmuError("Filament not detected")
 
     # Eject final clear of gate. Important for MMU's where filament is always gripped (e.g. most type-B)
@@ -6838,11 +6840,12 @@ class Mmu:
                 msg = self._mmu_visual_to_string()
                 msg += "\n%s" % self._state_to_string()
                 self.log_info(msg, color=True)
-                # Disable type-B lane stepper after select (re-enabled on next move)
-                if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
-                    self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
         except MmuError as ee:
             self.handle_mmu_error(str(ee))
+        finally:
+            # Disable type-B lane stepper after select (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
     cmd_MMU_SELECT_BYPASS_help = "Select the filament bypass"
     def cmd_MMU_SELECT_BYPASS(self, gcmd):
@@ -7157,14 +7160,14 @@ class Mmu:
                                 self._ensure_ttg_match()
                                 self._initialize_encoder() # Encoder 0000
 
-                    # Disable type-B lane stepper after eject command (re-enabled on next move)
-                    if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
-                        self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
-
                     self._persist_swap_statistics()
 
         except MmuError as ee:
             self.handle_mmu_error("Filament eject for gate %d failed: %s" % (gate, str(ee)))
+        finally:
+            # Disable type-B lane stepper after eject command (re-enabled on next move)
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
     # Common logic for MMU_UNLOAD and MMU_EJECT
     def _mmu_unload_eject(self, gcmd):
