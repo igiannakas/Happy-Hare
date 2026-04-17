@@ -420,8 +420,8 @@ class Mmu:
         # Tangle prevention - gear current boost based on proportional sensor tension. Hidden config parameters, feature enabled by default
         # Defaults to 50% tension meaning we are heading towards a tangle. Release at 30% tension to prevent "thrashing"
         self.tangle_prevention_enabled = config.getint('tangle_prevention_enabled', 1, minval=0, maxval=1)
-        self.tangle_prevention_threshold = config.getfloat('tangle_prevention_threshold', 0.5, minval=0.3, maxval=0.9)
-        self.tangle_prevention_release = config.getfloat('tangle_prevention_release', 0.3, minval=0.2, maxval=0.8)
+        self.tangle_prevention_threshold = config.getfloat('tangle_prevention_threshold', 0.3, minval=0.2, maxval=0.9)
+        self.tangle_prevention_release = config.getfloat('tangle_prevention_release', 0.2, minval=0.15, maxval=0.8)
 
         # Filament move speeds and accelaration
         self.gear_from_buffer_speed = config.getfloat('gear_from_buffer_speed', 150., minval=10.)
