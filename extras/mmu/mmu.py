@@ -5202,8 +5202,9 @@ class Mmu:
                     else:
                         self.wrap_gcode_command(self.post_load_macro, exception=True, wait=True)
 
-            # Arm tangle prevention now that load is fully complete
-            self.sync_feedback_manager.activate_tangle_prevention()
+            # Arm tangle prevention now that load is fully complete (not for bypass or extruder-only loads)
+            if not extruder_only and self.gate_selected >= 0:
+                self.sync_feedback_manager.activate_tangle_prevention()
 
         except MmuError as ee:
             self._track_gate_statistics('load_failures', self.gate_selected)
