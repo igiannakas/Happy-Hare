@@ -6774,7 +6774,7 @@ class Mmu:
             self.handle_mmu_error(str(ee))
         finally:
             # Disable type-B lane stepper after select (re-enabled on next move)
-            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped and self.gate_selected >= 0:
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
                 self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
     cmd_MMU_SELECT_BYPASS_help = "Select the filament bypass"
@@ -7096,7 +7096,7 @@ class Mmu:
             self.handle_mmu_error("Filament eject for gate %d failed: %s" % (gate, str(ee)))
         finally:
             # Disable type-B lane stepper after eject command (re-enabled on next move)
-            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped and self.gate_selected >= 0:
+            if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
                 self.mmu_toolhead.disable_lane_stepper(self.gate_selected)
 
     # Common logic for MMU_UNLOAD and MMU_EJECT
