@@ -616,6 +616,8 @@ class MmuToolHead(toolhead.ToolHead, object):
     # never printer axis or extruder steppers.
 
     def disable_lane_stepper(self, gate):
+        if gate < 0:
+            return
         stepper_name = GEAR_STEPPER_CONFIG if gate == 0 else "%s_%d" % (GEAR_STEPPER_CONFIG, gate)
         se = self.printer.lookup_object('stepper_enable').lookup_enable(stepper_name)
         se.motor_disable(self.get_last_move_time())
