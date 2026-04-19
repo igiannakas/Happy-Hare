@@ -4888,20 +4888,31 @@ class Mmu:
         return step*i, homed, measured, delta
 
     # Validate that the extruder has gripped the filament after homing using the proportional sensor.
-    # Drives extruder motor only in incremental steps and checks the sensor drops below the trigger threshold,
-    # confirming the extruder is actively pulling filament through.
-    # Returns: distance moved (mm) on success
+    # First performs a short synced move (gear+extruder) to feed filament into the extruder gears and
+    # establish grip, since the extruder cannot grab filament on its own with the gear stepper off.
+    # Then drives extruder motor only in incremental steps and checks the sensor drops below the trigger
+    # threshold, confirming the extruder is actively pulling filament through.
+    # Returns: total distance moved (mm) on success
     # Raises: MmuError if the sensor never drops below threshold
     def _validate_extruder_entry_proportional(self):
         prop_sensor = self.sensor_manager.sensors.get(self.SENSOR_PROPORTIONAL)
         prop_threshold = self.proportional_extruder_threshold
+        buffer_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange
 
-        step_size = self.sync_feedback_manager.sync_feedback_buffer_maxrange / 2.
-        max_steps = 4
+        # Phase 1: Short synced move to feed filament into extruder gears and establish grip
+        grip_distance = buffer_range * 0.25
         initial_state = prop_sensor.get_status(0).get('value', 0.)
-        self.log_debug("Proportional post-load validation: sensor=%.3f, driving extruder in %.1fmm steps (up to %d) to confirm entry..." % (initial_state, step_size, max_steps))
+        self.log_debug("Proportional post-load validation: sensor=%.3f, synced feed of %.1fmm to establish extruder grip..." % (initial_state, grip_distance))
+        self.selector.filament_drive()
+        self.trace_filament_move("Synced feed to establish extruder grip", grip_distance, speed=self.extruder_sync_load_speed, motor="gear+extruder", wait=True)
+        moved = grip_distance
 
-        moved = 0.
+        # Phase 2: Extruder-only steps to confirm grip by checking sensor drops below threshold
+        step_size = buffer_range / 2.
+        max_steps = 4
+        self.selector.filament_release()
+        self.log_debug("Proportional post-load validation: driving extruder-only in %.1fmm steps (up to %d) to confirm grip..." % (step_size, max_steps))
+
         for i in range(max_steps):
             self.trace_filament_move("Proportional extruder entry validation step %d" % (i + 1), step_size, speed=self.extruder_load_speed, motor="extruder", wait=True)
             moved += step_size
