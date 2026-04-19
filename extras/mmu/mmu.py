@@ -4900,7 +4900,7 @@ class Mmu:
         buffer_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange
 
         # Phase 1: Short synced move to feed filament into extruder gears and establish grip
-        grip_distance = buffer_range * 0.25
+        grip_distance = buffer_range * 0.50
         initial_state = prop_sensor.get_status(0).get('value', 0.)
         self.log_debug("Proportional post-load validation: sensor=%.3f, synced feed of %.1fmm to establish extruder grip..." % (initial_state, grip_distance))
         self.selector.filament_drive()
@@ -5004,7 +5004,7 @@ class Mmu:
                 and has_proportional
                 and self.extruder_homing_endstop == self.SENSOR_EXTRUDER_ENTRY_PROP
             ):
-                max_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange * 2
+                max_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange * 2.5 # 0.5 synced grip + 4 * 0.5 extruder-only steps
                 if length > max_range:
                     moved = self._validate_extruder_entry_proportional()
                     length -= moved
