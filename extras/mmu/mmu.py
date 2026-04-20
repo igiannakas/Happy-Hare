@@ -4724,6 +4724,13 @@ class Mmu:
         # Shorten move by gate buffer used to ensure we don't overshoot homing point
         length -= self.gate_unload_buffer
 
+        # When using virtual endstops (proportional or compression) without a physical extruder/toolhead
+        # sensor, the extruder unload adds toolhead_unload_safety_margin to the blind move which
+        # overshoots the bowden start. Compensate here to prevent the bowden unload from overshooting
+        if self.extruder_homing_endstop in [self.SENSOR_EXTRUDER_ENTRY_PROP, self.SENSOR_COMPRESSION]:
+            if not self.sensor_manager.has_sensor(self.SENSOR_EXTRUDER_ENTRY) and not self.sensor_manager.has_sensor(self.SENSOR_TOOLHEAD):
+                length -= self.toolhead_unload_safety_margin
+
         try:
             if length > 0:
                 self.log_debug("Unloading bowden tube")
