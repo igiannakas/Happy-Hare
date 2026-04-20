@@ -352,6 +352,10 @@ class MmuProportionalSensor:
                 self._last_extreme = extreme
                 self.printer.send_event("mmu:sync_feedback", read_time, self.value)
 
+    @property
+    def report_time(self):
+        return self._report_time
+
     def get_status(self, eventtime):
         return {
             "enabled":          bool(self.runout_helper.sensor_enabled),
