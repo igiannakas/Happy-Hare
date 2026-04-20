@@ -435,7 +435,7 @@ class Mmu:
         self.gear_short_move_accel = config.getfloat('gear_short_move_accel', 400, minval=10.)
         self.gear_short_move_threshold = config.getfloat('gear_short_move_threshold', self.gate_homing_max, minval=1.)
         self.gear_homing_speed = config.getfloat('gear_homing_speed', 150, minval=1.)
-        self.proportional_homing_speed = config.getfloat('proportional_homing_speed', 10, minval=1.) # Dedicated speed for proportional sensor extruder homing
+        self.proportional_homing_speed = config.getfloat('proportional_homing_speed', 15, minval=1., maxval=40.0) # Dedicated speed for proportional sensor extruder homing
         self.proportional_extruder_threshold = config.getfloat('proportional_extruder_threshold', 0.9, minval=0.1, maxval=1.0) # Threshold for proportional sensor extruder entry detection
 
         self.extruder_load_speed = config.getfloat('extruder_load_speed', 15, minval=1.)
