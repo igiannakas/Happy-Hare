@@ -5996,6 +5996,15 @@ class Mmu:
         looks_loaded = self.sensor_manager.check_all_sensors_in_path()
         if not filament_detected:
             filament_detected = self.check_filament_in_mmu() # Include encoder detection method
+        if not filament_detected and self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL):
+            # Proportional sensor is not in the standard sensor path list but can indicate filament
+            # presence. If the sensor is not in deep tension, filament is likely present and interacting
+            # with something (extruder entrance or grip)
+            prop_sensor = self.sensor_manager.sensors.get(self.SENSOR_PROPORTIONAL)
+            prop_value = prop_sensor.get_status(0).get('value', 0.)
+            if prop_value > -0.9:
+                filament_detected = True
+                self.log_info("Proportional sensor (%.3f) indicates filament present" % prop_value)
 
         # Definitely loaded
         if ts:
@@ -6003,7 +6012,16 @@ class Mmu:
 
         # Probably loaded: Unless strict we will continue to assume loaded in the absence of sensors to say otherwise
         elif not strict and self.filament_pos == self.FILAMENT_POS_LOADED and looks_loaded:
-            pass
+            # Without toolhead or physical extruder entry sensor, "looks_loaded" is based only on the
+            # gate sensor which cannot distinguish "in bowden" from "fully loaded". If proportional
+            # sensor is available and extruder can be heated, use it to verify extruder grip
+            if can_heat and ts is None and es is None and self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL):
+                prop_result = self.check_filament_in_extruder_by_proportional()
+                if prop_result is True:
+                    self.log_info("Proportional sensor confirms extruder grip - filament loaded")
+                elif prop_result is False:
+                    self.log_info("Proportional sensor indicates no extruder grip - filament may not be fully loaded")
+                    self._set_filament_pos_state(self.FILAMENT_POS_IN_BOWDEN, silent=silent)
 
         # Somewhere in extruder
         elif filament_detected and can_heat and self.check_filament_in_extruder(): # Encoder based
@@ -6014,8 +6032,11 @@ class Mmu:
             self._set_filament_pos_state(self.FILAMENT_POS_IN_EXTRUDER, silent=silent) # Will start from tip forming
 
         # Proportional sensor based extruder grip detection (centre + retract test)
-        elif filament_detected and can_heat and self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL) and self.check_filament_in_extruder_by_proportional():
-            self._set_filament_pos_state(self.FILAMENT_POS_IN_EXTRUDER, silent=silent) # Will start from tip forming on unload
+        # Gate on (filament_detected or gs) because filament_detected may be None when gate_selected
+        # is unknown (sensors in path can't be evaluated) but the gate sensor can still independently
+        # confirm filament presence. The two-phase test handles gear engagement internally.
+        elif (filament_detected or gs) and can_heat and self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL) and self.check_filament_in_extruder_by_proportional():
+            self._set_filament_pos_state(self.FILAMENT_POS_LOADED, silent=silent)
 
         # At extruder entry
         elif es:
@@ -6124,8 +6145,9 @@ class Mmu:
     #     - Any other outcome (centred or partially moved) → filament is near the extruder but we
     #       cannot distinguish "at entry, not gripped" from "gripped and loaded" because both present
     #       a rigid wall for the gear motor to work against → proceed to phase 2
-    #   Phase 2: Small extruder-only retract proportional to the current sensor reading.
-    #     - If sensor shifts toward tension → extruder has grip → loaded
+    #   Phase 2: Small extruder-only retract to check for sensor response.
+    #     - If sensor shifts toward compression → extruder has grip (retract pushes filament back
+    #       into bowden, compressing the buffer) → loaded
     #     - If sensor unchanged → extruder has no grip → at entry but not gripped
     # Requires hot extruder for phase 2 to avoid grinding cold filament.
     # Returns True if extruder grip detected, False if not, None if test not possible
@@ -6147,7 +6169,7 @@ class Mmu:
         # but could be either at the entry or gripped — both present a rigid anchor for the gear motor.
         self.log_info("Proportional recovery phase 1: attempting to centre sensor...")
         self.selector.filament_drive()
-        _, success = self.sync_feedback_manager.adjust_filament_tension()
+        _, success = self.sync_feedback_manager.adjust_filament_tension(max_move=2*buffer_range)
         post_adjust = prop_sensor.get_status(0).get('value', 0.)
 
         if not success and post_adjust <= -0.9:
@@ -6157,23 +6179,23 @@ class Mmu:
 
         # Phase 2: Extruder-only retract to distinguish "at entry" from "gripped"
         # Retract distance proportional to current sensor reading to avoid oversized moves
-        self.log_info("Proportional recovery phase 2: extruder-only retract test (sensor=%.3f)..." % post_adjust)
         self._ensure_safe_extruder_temperature(wait=True)
 
-        # Scale retract: if sensor reads 0.5, retract 50% of buffer range
-        retract_proportion = max(abs(post_adjust), 0.1) # At least 10% to get a meaningful test
-        retract_distance = retract_proportion * buffer_range
+        # When the extruder retracts with grip, filament is pushed back into the bowden
+        # compressing the buffer — the sensor shifts toward compression (more positive).
+        retract_distance = buffer_range
         pre_retract = prop_sensor.get_status(0).get('value', 0.)
 
+        self.log_info("Proportional recovery phase 2: extruder-only retract test of %.1fmm (sensor=%.3f, buffer_range=%.1f)..." % (retract_distance, post_adjust, buffer_range))
         self.trace_filament_move("Proportional recovery: extruder retract test", -retract_distance, speed=self.extruder_unload_speed, motor="extruder", wait=True)
         self.movequeues_dwell(settle_time)
         post_retract = prop_sensor.get_status(0).get('value', 0.)
 
-        shift = pre_retract - post_retract # Positive means sensor moved toward tension
-        detected = shift > 0.1 # Any meaningful shift toward tension confirms extruder grip
+        shift = post_retract - pre_retract # Positive means sensor moved toward compression
+        detected = shift > 0.1 # Shift toward compression confirms extruder grip
 
-        self.log_info("Proportional recovery: pre_retract=%.3f, post_retract=%.3f, shift=%.3f - filament %s in extruder"
-                      % (pre_retract, post_retract, shift, "detected" if detected else "not detected"))
+        self.log_info("Proportional recovery: retracted %.1fmm, pre=%.3f, post=%.3f, shift=%.3f - filament %s loaded"
+                      % (retract_distance, pre_retract, post_retract, shift, "confirmed" if detected else "not"))
 
         # Return filament to original position if extruder had grip
         if detected:
