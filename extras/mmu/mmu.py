@@ -4940,7 +4940,7 @@ class Mmu:
     def _validate_extruder_unload_proportional(self):
         prop_sensor = self.sensor_manager.sensors.get(self.SENSOR_PROPORTIONAL)
         buffer_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange
-        probe_distance = buffer_range * 0.5
+        probe_distance = buffer_range # Tweak experimentally - set to buffer range to have a good "signal"
         settle_time = prop_sensor.report_time * 2 # Two full ADC cycles for a reliable reading
 
         pre_spin = prop_sensor.get_status(0).get('value', 0.)
