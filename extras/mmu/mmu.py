@@ -9300,6 +9300,9 @@ class Mmu:
                                             self.log_always(msg)
                                     finally:
                                         self._initialize_encoder() # Encoder 0000
+                                        # Disable type-B lane stepper after each gate check (re-enabled on next select_gate)
+                                        if self.mmu_machine.multigear and self.mmu_machine.filament_always_gripped:
+                                            self.mmu_toolhead.disable_lane_stepper(gate)
 
                             # If not printing select original tool and load filament if necessary
                             # We don't do this when printing because this is expected to preceed loading initial tool
