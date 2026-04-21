@@ -6028,7 +6028,10 @@ class Mmu:
             detected = self.buzz_gear_motor()
             self.log_debug("Filament %s in encoder after buzzing gear motor" % ("detected" if detected else "not detected"))
         if detected is None:
-            self.log_debug("No sensors configured!")
+            if self.sensor_manager.has_sensor(self.SENSOR_PROPORTIONAL):
+                self.log_debug("No switch sensors or encoder available, will defer to proportional sensor")
+            else:
+                self.log_debug("No sensors configured!")
         return detected
 
     # Check for filament at currently selected gate
