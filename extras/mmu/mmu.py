@@ -4859,7 +4859,7 @@ class Mmu:
     # threshold, confirming the extruder is actively pulling filament through.
     # Returns: total distance moved (mm) on success
     # Raises: MmuError if the sensor never drops below threshold
-    def _validate_extruder_entry_proportional(self):
+    def _validate_extruder_entry_proportional(self, max_steps=4):
         prop_sensor = self.sensor_manager.sensors.get(self.SENSOR_PROPORTIONAL)
         prop_threshold = self.proportional_extruder_threshold
         buffer_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange
@@ -4874,7 +4874,6 @@ class Mmu:
 
         # Phase 2: Extruder-only steps to confirm grip by checking sensor drops below threshold
         step_size = buffer_range / 2.
-        max_steps = 4
         self.selector.filament_release()
         self.log_info("Proportional post-load validation: driving extruder-only in %.1fmm steps (up to %d) to confirm grip..." % (step_size, max_steps))
 
@@ -4987,7 +4986,9 @@ class Mmu:
                         raise MmuError("Failed to load filament passed the extruder entrance (sync-feedback buffer didn't detect neutral tension)")
 
             # Proportional sensor post-load validation: drive the extruder motor only to pull filament through then
-            # check the proportional sensor has dropped below the threshold, confirming extruder grip
+            # check the proportional sensor has dropped below the threshold, confirming extruder grip.
+            # Adaptive to available travel: always runs a synced grip-establishing feed, then fits as many
+            # extruder-only probe steps as the remaining load distance allows (up to a hard cap).
             elif (
                 self.gate_selected != self.TOOL_GATE_BYPASS
                 and self.toolhead_entry_tension_test
@@ -4996,12 +4997,21 @@ class Mmu:
                 and has_proportional
                 and self.extruder_homing_endstop == self.SENSOR_EXTRUDER_ENTRY_PROP
             ):
-                max_range = self.sync_feedback_manager.sync_feedback_buffer_maxrange * 2.5 # 0.5 synced grip + 4 * 0.5 extruder-only steps
-                if length > max_range:
-                    moved = self._validate_extruder_entry_proportional()
-                    length -= moved
+                buffer_range  = self.sync_feedback_manager.sync_feedback_buffer_maxrange
+                grip_distance = buffer_range * 0.50   # synced feed to establish extruder grip
+                step_size     = buffer_range / 2.     # extruder-only probe step
+                min_range     = grip_distance + step_size   # minimum budget for a meaningful validation (grip + 1 probe)
+                max_cap       = 4                     # hard cap on probe steps to avoid wasted travel when budget is large
+
+                if length >= min_range:
+                    max_steps = min(max_cap, int((length - grip_distance) // step_size))
+                    self.log_debug("Proportional post-load validation: grip %.1fmm + up to %d x %.1fmm probe step(s) (budget %.1fmm of %.1fmm available)"
+                                   % (grip_distance, max_steps, step_size, grip_distance + max_steps * step_size, length))
+                    moved = self._validate_extruder_entry_proportional(max_steps=max_steps)
+                    length = max(length - moved, 0)
                 else:
-                    self.log_info("Proportional post-load validation: skipped - remaining load distance (%.1fmm) is less than required validation move (%.1fmm)" % (length, max_range))
+                    self.log_info("Proportional post-load validation: skipped - remaining load distance (%.1fmm) is less than minimum validation move (%.1fmm = %.1fmm grip + %.1fmm probe)"
+                                  % (length, min_range, grip_distance, step_size))
 
             self.log_debug("Loading last %.1fmm to the nozzle..." % length)
             _,_,measured,delta = self.trace_filament_move("Loading filament to nozzle", length, speed=speed, motor=motor, wait=True)
