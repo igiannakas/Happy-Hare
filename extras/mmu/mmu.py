@@ -5384,8 +5384,16 @@ class Mmu:
                     if self.has_blobifier: # Legacy blobifer integration. purge_macro now preferred
                         with self.wrap_action(self.ACTION_PURGING):
                             self.wrap_gcode_command(self.post_load_macro, exception=True)
+                            # Non-blocking quiesce: flush_step_generation refreshes stepper
+                            # next_step_clock so any subsequent toolhead motion (e.g. an
+                            # un-retract on resume) cannot wrap modulo 2^32 -> TTC.
+                            self.mmu_toolhead.quiesce(full_quiesce=False)
                     else:
                         self.wrap_gcode_command(self.post_load_macro, exception=True)
+                        # Non-blocking quiesce: flush_step_generation refreshes stepper
+                        # next_step_clock so any subsequent toolhead motion (e.g. an
+                        # un-retract on resume) cannot wrap modulo 2^32 -> TTC.
+                        self.mmu_toolhead.quiesce(full_quiesce=False)
 
             # Arm tangle prevention now that load is fully complete (not for bypass or extruder-only loads)
             if not extruder_only and self.gate_selected >= 0:
@@ -5721,6 +5729,10 @@ class Mmu:
                     msg += "- slicer purge volume for toolchange %s > %s" % (self.selected_tool_string(self._last_tool), self.selected_tool_string(self._next_tool))
                     self.log_debug(msg)
                     self.wrap_gcode_command(self.purge_macro, exception=True)
+                    # Non-blocking quiesce: flush_step_generation refreshes stepper
+                    # next_step_clock so any subsequent toolhead motion cannot wrap
+                    # modulo 2^32 -> TTC after a long-running purge.
+                    self.mmu_toolhead.quiesce(full_quiesce=False)
             else:
                 self.log_warning("Purge macro %s not found" % self.purge_macro)
 
