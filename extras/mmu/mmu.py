@@ -4385,6 +4385,18 @@ class Mmu:
             else:
                 self._set_action(state)
 
+    def _run_sequence_extension(self, name, params=""):
+        sequence_vars = self.printer.lookup_object(
+            "gcode_macro _MMU_SEQUENCE_VARS", None)
+        if sequence_vars is None:
+            return
+        command = str(sequence_vars.variables.get(name, '') or '').strip()
+        if not command:
+            return
+        if params:
+            command = "%s %s" % (command, params)
+        self.wrap_gcode_command(command, exception=False)
+
 
 ##############################################
 # MODULAR FILAMENT LOAD AND UNLOAD FUNCTIONS #
@@ -9385,6 +9397,7 @@ class Mmu:
             if self.check_if_loaded(): return
 
         self.log_always("Preloading filament in %s..." % ("current gate" if gate == self.gate_selected else "gate %d" % gate))
+        preloaded_gate = None
         try:
             with self.wrap_sync_gear_to_extruder():
                 with self.wrap_suppress_visual_log():
@@ -9396,6 +9409,7 @@ class Mmu:
 
                         try:
                             self._preload_gate()
+                            preloaded_gate = gate
 
                         finally:
                             if self.gate_selected != current_gate:
@@ -9406,6 +9420,10 @@ class Mmu:
                                     # Lazy movement means we have side effect of changed tool/gate
                                     self._ensure_ttg_match()
                                     self._initialize_encoder() # Encoder 0000
+            if preloaded_gate is not None:
+                self._run_sequence_extension(
+                    'user_post_preload_extension',
+                    "GATE=%d" % preloaded_gate)
         except MmuError as ee:
             self.handle_mmu_error("Filament preload for gate %d failed: %s" % (gate, str(ee)))
 
